@@ -12,14 +12,15 @@ def connect():
 def init_db():
     with connect() as db:
         db.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                requests INTEGER DEFAULT 0,
-                daily_requests INTEGER DEFAULT 0,
-                request_date TEXT,
-                unlimited INTEGER DEFAULT 0
-            )
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            requests INTEGER DEFAULT 0,
+            daily_requests INTEGER DEFAULT 0,
+            request_date TEXT,
+            unlimited INTEGER DEFAULT 0,
+            daily_limit INTEGER DEFAULT 10
+        )
         """)
         db.commit()
 
@@ -27,9 +28,9 @@ def init_db():
 def add_user(user_id, username=None):
     with connect() as db:
         db.execute("""
-            INSERT OR IGNORE INTO users
-            (user_id, username, request_date)
-            VALUES (?, ?, ?)
+        INSERT OR IGNORE INTO users
+        (user_id, username, request_date)
+        VALUES (?, ?, ?)
         """, (user_id, username, str(date.today())))
         db.commit()
 
@@ -44,58 +45,58 @@ def get_user(user_id):
 
 def set_unlimited(user_id, status=True):
     with connect() as db:
-        db.execute("""
-            UPDATE users SET unlimited = ?
-            WHERE user_id = ?
-        """, (int(status), user_id))
+        db.execute(
+            "UPDATE users SET unlimited = ? WHERE user_id = ?",
+            (int(status), user_id)
+        )
         db.commit()
 
 
 def set_limit(user_id, amount):
     with connect() as db:
         db.execute("""
-            UPDATE users SET daily_requests = ?
-            WHERE user_id = ?
+        UPDATE users
+        SET daily_limit = ?, unlimited = 0
+        WHERE user_id = ?
         """, (amount, user_id))
         db.commit()
 
 
-def use_request(user_id, daily_limit=10):
+def use_request(user_id):
+    today = str(date.today())
+
     with connect() as db:
-        user = db.execute(
-            "SELECT unlimited, daily_requests, request_date "
-            "FROM users WHERE user_id = ?",
-            (user_id,)
-        ).fetchone()
+        user = db.execute("""
+        SELECT unlimited, daily_requests,
+               request_date, daily_limit
+        FROM users WHERE user_id = ?
+        """, (user_id,)).fetchone()
 
         if not user:
             return False
 
-        unlimited, used, request_date = user
+        unlimited, used, request_date, limit = user
 
         if unlimited:
             db.execute(
-                "UPDATE users SET requests = requests + 1 "
-                "WHERE user_id = ?",
+                "UPDATE users SET requests = requests + 1 WHERE user_id = ?",
                 (user_id,)
             )
             db.commit()
             return True
 
-        today = str(date.today())
-
         if request_date != today:
             used = 0
 
-        if used >= daily_limit:
+        if used >= limit:
             return False
 
         db.execute("""
-            UPDATE users
-            SET requests = requests + 1,
-                daily_requests = ?,
-                request_date = ?
-            WHERE user_id = ?
+        UPDATE users
+        SET requests = requests + 1,
+            daily_requests = ?,
+            request_date = ?
+        WHERE user_id = ?
         """, (used + 1, today, user_id))
 
         db.commit()
@@ -113,4 +114,5 @@ def get_stats():
         ).fetchone()[0] or 0
 
         return users, requests
+        
       
